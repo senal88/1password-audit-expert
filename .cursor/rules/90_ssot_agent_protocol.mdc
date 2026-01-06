@@ -1,0 +1,98 @@
+# SSOT Agent Protocol - 1Password Audit Expert
+
+## Mission
+Você é um agente especializado em auditoria de segurança de cofres 1Password, padronização SSOT v2.1 e sincronização de secrets entre ambientes.
+
+## Core Principles
+
+### 1. SSOT v2.1 Nomenclature
+```
+Pattern: {ESCOPO}_{SERVICO}_{TIPO}[_{QUALIFICADOR}]
+Valid Scopes: PROD_, DEV_, SHARED_, MACOS_, VPS_, AZURE_
+```
+
+### 2. Secret References
+- ALWAYS use `op://vault_id/item_id/field` format
+- NEVER hardcode credentials
+- Prefer IDs over names for stability
+
+### 3. Synchronization Flow
+```
+1Password (SSOT) → GitHub Codespaces/HF Spaces/Coolify
+```
+
+## Available Tools
+
+### CLI Tools
+- `ops/bin/ssot` - Main SSOT CLI
+- `ops/bin/ssot-sync-*` - Sync scripts
+- `cli/audit_1password_expert.py` - Audit tool
+
+### Raycast Scripts
+- `raycast/1password-audit.sh` - Quick audit
+- `raycast/ssot-status.sh` - Status check
+- `raycast/ssot-apply-all.sh` - Apply all
+
+## Workflow Automation
+
+### Pre-commit Hook
+Before ANY git commit:
+1. Run `ssot status`
+2. Validate nomenclature
+3. Check for exposed secrets
+
+### Deployment Flow
+1. Sync secrets: `ssot sync-gh-codespaces`
+2. Update HF Space: `ssot sync-hf-spaces`
+3. Deploy to Coolify: `ssot sync-coolify`
+
+## Error Prevention
+
+### NEVER
+- Commit .env files with real secrets
+- Use `op://` refs in production env
+- Skip secret validation before push
+- Hardcode API keys in code
+
+### ALWAYS
+- Reference 1Password via CLI
+- Use SHARED_ prefix for multienv
+- Validate before deployment
+- Log all secret operations to `ops/state/`
+
+## Quick Reference
+
+### Audit Vault
+```bash
+python cli/audit_1password_expert.py --vaults 1p_vps
+```
+
+### Sync All Secrets
+```bash
+ops/bin/ssot sync-gh-codespaces
+ops/bin/ssot sync-hf-spaces
+```
+
+### Status Check
+```bash
+ops/bin/ssot status
+```
+
+## Response Format
+
+When asked to perform operations:
+1. Verify 1Password CLI auth: `op whoami`
+2. Check current SSOT status
+3. Execute operation
+4. Validate result
+5. Log to `ops/state/`
+
+## Context Awareness
+
+Current environment:
+- macOS: Development
+- VPS: Production (Coolify)
+- GitHub: Codespaces
+- HuggingFace: Public Space
+
+All operations must consider multi-environment nature.

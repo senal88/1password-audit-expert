@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# ops/bin/ssot-normalize-names
+# Normaliza nomenclatura de items no 1Password conforme SSOT v2.1
+# Autor: senal88
+# Data: 2026-01-05
+
+set -euo pipefail
+
+log_info() { echo -e "\033[34m[INFO]\033[0m $*"; }
+log_warn() { echo -e "\033[33m[WARN]\033[0m $*"; }
+log_success() { echo -e "\033[32m[OK]\033[0m $*"; }
+log_error() { echo -e "\033[31m[ERROR]\033[0m $*" >&2; }
+
+log_info "Analisando nomenclatura de items 1Password..."
+
+# Padrão SSOT v2.1: {ESCOPO}_{SERVICO}_{TIPO}[_{QUALIFICADOR}]
+VALID_SCOPES="PROD|DEV|SHARED|MACOS|VPS|AZURE"
+
+# Listar todos os vaults
+vaults=$(op vault list --format json 2>/dev/null | jq -r '.[].name')
+
+violations=()
+
+for vault in $vaults; do
+    log_info "Analisando vault: ${vault}"
+
+    items=$(op item list --vault "$vault" --format json 2>/dev/null)
+
+    echo "$items" | jq -c '.[]' | while read -r item; do
+        id=$(echo "$item" | jq -r '.id')
+        title=$(echo "$item" | jq -r '.title')
+
+        # Verificar se segue padrão SSOT
+        if ! echo "$title" | grep -qE "^(${VALID_SCOPES})_[A-Z0-9_]+$"; then
+            echo "VIOLATION:${vault}:${id}:${title}"
+        fi
+    done
+done > /tmp/ssot_naming_violations.txt
+
+# Exibir violações
+if [[ -s /tmp/ssot_naming_violations.txt ]]; then
+    log_warn "Violações de nomenclatura encontradas:"
+    echo ""
+
+    while IFS=: read -r vault_name item_id item_title; do
+        echo "  ❌ [${vault_name}] ${item_title} (${item_id})"
+    done < /tmp/ssot_naming_violations.txt
+
+    echo ""
+    log_info "Para corrigir, execute:"
+    echo "  op item edit <ID> 'title=ESCOPO_SERVICO_TIPO' --vault <VAULT>"
+else
+    log_success "Nenhuma violação de nomenclatura encontrada!"
+fi
+
+rm -f /tmp/ssot_naming_violations.txt

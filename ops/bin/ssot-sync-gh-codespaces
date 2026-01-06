@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+# ops/bin/ssot-sync-gh-codespaces
+# Sincroniza secrets SHARED_* do 1Password para GitHub Codespaces (user secrets)
+# Autor: senal88
+# Data: 2026-01-05
+
+set -euo pipefail
+
+log_info() { echo -e "\033[34m[INFO]\033[0m $*"; }
+log_success() { echo -e "\033[32m[OK]\033[0m $*"; }
+log_error() { echo -e "\033[31m[ERROR]\033[0m $*" >&2; }
+
+# Verificar gh CLI
+if ! command -v gh &> /dev/null; then
+    log_error "GitHub CLI (gh) não encontrado. Instale: brew install gh"
+    exit 1
+fi
+
+# Autenticar
+if ! gh auth status &> /dev/null; then
+    log_error "GitHub CLI não autenticado. Execute: gh auth login"
+    exit 1
+fi
+
+log_info "Sincronizando secrets SHARED_* com GitHub Codespaces..."
+
+# Mapear secrets do 1Password
+SECRETS_MAP=(
+    "SHARED_OPENAI_API_KEY:op://gkpsbgizlks2zknwzqpppnb2ze/SSOT::SHARED::EXTERNAL::OPENAI/api_key"
+    "SHARED_HUGGINGFACE_TOKEN:op://gkpsbgizlks2zknwzqpppnb2ze/SSOT::SHARED::EXTERNAL::HUGGINGFACE/api_key"
+    "SHARED_PERPLEXITY_API_KEY:op://gkpsbgizlks2zknwzqpppnb2ze/PERPLEXITY_SONAR/api_key"
+    "SHARED_GITHUB_TOKEN:op://gkpsbgizlks2zknwzqpppnb2ze/SSOT::SHARED::EXTERNAL::GITHUB/api_token"
+    "SHARED_COOLIFY_TOKEN:op://gkpsbgizlks2zknwzqpppnb2ze/SSOT::SHARED::EXTERNAL::COOLIFY/api_token"
+)
+
+# Sincronizar cada secret
+for entry in "${SECRETS_MAP[@]}"; do
+    IFS=":" read -r secret_name op_ref <<< "$entry"
+
+    log_info "Sincronizando ${secret_name}..."
+
+    # Ler valor do 1Password
+    if ! value=$(op read "$op_ref" 2>/dev/null); then
+        log_error "Falha ao ler ${op_ref}"
+        continue
+    fi
+
+    # Enviar para GitHub Codespaces (user secret)
+    if echo "$value" | gh secret set "$secret_name" --app codespaces --user 2>/dev/null; then
+        log_success "${secret_name} ✓"
+    else
+        log_error "Falha ao definir ${secret_name}"
+    fi
+done
+
+log_success "Sincronização com GitHub Codespaces concluída!"

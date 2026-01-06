@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# ops/bin/ssot-sync-hf-spaces
+# Sincroniza secrets do 1Password para HuggingFace Spaces
+# Autor: senal88
+# Data: 2026-01-05
+
+set -euo pipefail
+
+log_info() { echo -e "\033[34m[INFO]\033[0m $*"; }
+log_success() { echo -e "\033[32m[OK]\033[0m $*"; }
+log_error() { echo -e "\033[31m[ERROR]\033[0m $*" >&2; }
+
+# Verificar Python e huggingface_hub
+if ! command -v python3 &> /dev/null; then
+    log_error "Python3 não encontrado"
+    exit 1
+fi
+
+if ! python3 -c "import huggingface_hub" 2>/dev/null; then
+    log_error "huggingface_hub não instalado. Execute: pip install huggingface_hub"
+    exit 1
+fi
+
+log_info "Sincronizando secrets com HuggingFace Spaces..."
+
+# Obter token HF do 1Password
+HF_TOKEN=$(op read "op://gkpsbgizlks2zknwzqpppnb2ze/SSOT::SHARED::EXTERNAL::HUGGINGFACE/api_key" 2>/dev/null)
+
+if [[ -z "$HF_TOKEN" ]]; then
+    log_error "Falha ao obter HF_TOKEN do 1Password"
+    exit 1
+fi
+
+# Space a ser configurado
+SPACE_ID="${HF_SPACE_ID:-senal88/1password-audit-expert}"
+
+# Secrets a sincronizar
+SECRETS_MAP=(
+    "HF_TOKEN:op://gkpsbgizlks2zknwzqpppnb2ze/SSOT::SHARED::EXTERNAL::HUGGINGFACE/api_key"
+    "OPENAI_API_KEY:op://gkpsbgizlks2zknwzqpppnb2ze/SSOT::SHARED::EXTERNAL::OPENAI/api_key"
+    "PERPLEXITY_API_KEY:op://gkpsbgizlks2zknwzqpppnb2ze/PERPLEXITY_SONAR/api_key"
+)
+
+# Script Python para adicionar secrets
+python3 << EOF
+from huggingface_hub import HfApi
+import sys
+import subprocess
+
+api = HfApi(token="${HF_TOKEN}")
+space_id = "${SPACE_ID}"
+
+secrets = {
+$(for entry in "${SECRETS_MAP[@]}"; do
+    IFS=":" read -r secret_name op_ref <<< "$entry"
+    value=$(op read "$op_ref" 2>/dev/null || echo "")
+    if [[ -n "$value" ]]; then
+        echo "    \"${secret_name}\": \"${value}\","
+    fi
+done)
+}
+
+for key, value in secrets.items():
+    try:
+        api.add_space_secret(repo_id=space_id, key=key, value=value)
+        print(f"✓ {key}")
+    except Exception as e:
+        print(f"✗ {key}: {e}", file=sys.stderr)
+EOF
+
+log_success "Sincronização com HuggingFace Spaces concluída!"

@@ -1,0 +1,80 @@
+#!/usr/bin/env bash
+# ops/bin/ssot-sync-coolify
+# Sincroniza env vars do 1Password para Coolify
+# Autor: senal88
+# Data: 2026-01-05
+
+set -euo pipefail
+
+log_info() { echo -e "\033[34m[INFO]\033[0m $*"; }
+log_success() { echo -e "\033[32m[OK]\033[0m $*"; }
+log_error() { echo -e "\033[31m[ERROR]\033[0m $*" >&2; }
+
+# Verificar variáveis obrigatórias
+if [[ -z "${COOLIFY_BASE_URL:-}" ]]; then
+    log_error "COOLIFY_BASE_URL não definido"
+    echo "Uso: COOLIFY_BASE_URL=https://coolify.example.com COOLIFY_API_TOKEN=xxx ssot sync-coolify"
+    exit 1
+fi
+
+if [[ -z "${COOLIFY_API_TOKEN:-}" ]]; then
+    # Tentar ler do 1Password
+    COOLIFY_API_TOKEN=$(op read "op://gkpsbgizlks2zknwzqpppnb2ze/SSOT::SHARED::EXTERNAL::COOLIFY/api_token" 2>/dev/null || echo "")
+
+    if [[ -z "$COOLIFY_API_TOKEN" ]]; then
+        log_error "COOLIFY_API_TOKEN não definido"
+        exit 1
+    fi
+fi
+
+# Application/Service UUID (customizar conforme necessário)
+COOLIFY_APP_UUID="${COOLIFY_APP_UUID:-}"
+
+if [[ -z "$COOLIFY_APP_UUID" ]]; then
+    log_error "COOLIFY_APP_UUID não definido"
+    echo "Defina o UUID da aplicação Coolify: export COOLIFY_APP_UUID=xxx"
+    exit 1
+fi
+
+log_info "Sincronizando env vars com Coolify..."
+
+# Mapear env vars
+ENVS_MAP=(
+    "OPENAI_API_KEY:op://gkpsbgizlks2zknwzqpppnb2ze/SSOT::SHARED::EXTERNAL::OPENAI/api_key"
+    "HUGGINGFACE_TOKEN:op://gkpsbgizlks2zknwzqpppnb2ze/SSOT::SHARED::EXTERNAL::HUGGINGFACE/api_key"
+    "PERPLEXITY_API_KEY:op://gkpsbgizlks2zknwzqpppnb2ze/PERPLEXITY_SONAR/api_key"
+)
+
+# Construir payload JSON
+env_json="{"
+first=true
+for entry in "${ENVS_MAP[@]}"; do
+    IFS=":" read -r env_name op_ref <<< "$entry"
+
+    value=$(op read "$op_ref" 2>/dev/null || echo "")
+    if [[ -n "$value" ]]; then
+        if [[ "$first" == false ]]; then
+            env_json+=","
+        fi
+        env_json+="\"${env_name}\":\"${value}\""
+        first=false
+    fi
+done
+env_json+="}"
+
+# Enviar para Coolify API
+log_info "Enviando env vars para Coolify..."
+
+response=$(curl -s -X POST \
+    "${COOLIFY_BASE_URL}/api/v1/applications/${COOLIFY_APP_UUID}/envs" \
+    -H "Authorization: Bearer ${COOLIFY_API_TOKEN}" \
+    -H "Content-Type: application/json" \
+    -d "$env_json")
+
+if [[ $? -eq 0 ]]; then
+    log_success "Env vars sincronizadas com Coolify!"
+    echo "Response: ${response}"
+else
+    log_error "Falha ao sincronizar com Coolify"
+    exit 1
+fi

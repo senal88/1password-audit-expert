@@ -1,0 +1,227 @@
+#!/usr/bin/env bash
+# ops/bin/ssot
+# SSOT CLI - Single Source of Truth Management
+# Versão: 1.0.0
+# Autor: senal88
+# Data: 2026-01-05
+
+set -euo pipefail
+
+# Cores
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+log_info() { echo -e "${BLUE}[INFO]${NC} $*"; }
+log_warn() { echo -e "${YELLOW}[WARN]${NC} $*"; }
+log_error() { echo -e "${RED}[ERROR]${NC} $*" >&2; }
+log_success() { echo -e "${GREEN}[OK]${NC} $*"; }
+
+# Configurações
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+OPS_DIR="$(dirname "$SCRIPT_DIR")"
+REPO_ROOT="$(dirname "$OPS_DIR")"
+STATE_DIR="${OPS_DIR}/state"
+POLICY_DIR="${OPS_DIR}/policy"
+TEMPLATES_DIR="${OPS_DIR}/templates"
+
+# Criar diretórios se não existirem
+mkdir -p "${STATE_DIR}" "${POLICY_DIR}" "${TEMPLATES_DIR}"
+
+# Funções auxiliares
+check_op_cli() {
+    if ! command -v op &> /dev/null; then
+        log_error "1Password CLI (op) não encontrado"
+        echo "Instale: brew install --cask 1password-cli"
+        exit 1
+    fi
+
+    if ! op whoami --format json &> /dev/null; then
+        log_error "1Password CLI não autenticado"
+        echo "Execute: eval \$(op signin)"
+        exit 1
+    fi
+}
+
+# Comandos disponíveis
+cmd_apply_all() {
+    log_info "Aplicando todas as padronizações SSOT..."
+
+    # 1. Normalizar nomenclatura
+    "$SCRIPT_DIR/ssot-normalize-names"
+
+    # 2. Validar tags
+    "$SCRIPT_DIR/ssot-validate-tags"
+
+    # 3. Migrar para IDs
+    "$SCRIPT_DIR/ssot-migrate-to-ids"
+
+    # 4. Normalizar DevContainer
+    "$SCRIPT_DIR/ssot-normalize-devcontainer"
+
+    log_success "Padronização completa aplicada!"
+}
+
+cmd_sync_gh_codespaces() {
+    log_info "Sincronizando secrets com GitHub Codespaces..."
+    "$SCRIPT_DIR/ssot-sync-gh-codespaces"
+}
+
+cmd_sync_hf_spaces() {
+    log_info "Sincronizando secrets com HuggingFace Spaces..."
+    "$SCRIPT_DIR/ssot-sync-hf-spaces"
+}
+
+cmd_sync_coolify() {
+    log_info "Sincronizando env vars com Coolify..."
+    "$SCRIPT_DIR/ssot-sync-coolify"
+}
+
+cmd_shell_macos() {
+    log_info "Configurando shell macOS..."
+    "$SCRIPT_DIR/ssot-shell-macos"
+}
+
+cmd_shell_linux() {
+    log_info "Configurando shell Linux/VPS..."
+    "$SCRIPT_DIR/ssot-shell-linux"
+}
+
+cmd_audit() {
+    log_info "Executando auditoria 1Password..."
+    python3 "${REPO_ROOT}/cli/audit_1password_expert.py" "$@"
+}
+
+cmd_status() {
+    echo ""
+    echo "======================================"
+    echo "   SSOT Status"
+    echo "======================================"
+    echo ""
+
+    # 1Password CLI
+    if op whoami --format json &> /dev/null; then
+        local email
+        email=$(op whoami --format json 2>/dev/null | jq -r '.email' 2>/dev/null || echo "N/A")
+        log_success "1Password CLI: ${email}"
+    else
+        log_error "1Password CLI: não autenticado"
+    fi
+
+    # Git
+    if git rev-parse --git-dir &> /dev/null; then
+        local branch
+        branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+        local remote
+        remote=$(git remote get-url origin 2>/dev/null || echo "N/A")
+        log_success "Git: branch=${branch}, remote=${remote}"
+    else
+        log_warn "Git: não é um repositório git"
+    fi
+
+    # Vaults
+    echo ""
+    echo "Cofres 1Password:"
+    op vault list --format json 2>/dev/null | jq -r '.[] | "  - \(.name) (\(.id))"' || echo "  (erro ao listar)"
+
+    # Última auditoria
+    echo ""
+    local last_audit
+    last_audit=$(ls -t "${STATE_DIR}"/1password_audit_*.md 2>/dev/null | head -1)
+    if [[ -n "$last_audit" ]]; then
+        log_info "Última auditoria: $(basename "$last_audit")"
+    else
+        log_warn "Nenhuma auditoria encontrada"
+    fi
+
+    echo ""
+}
+
+cmd_help() {
+    cat << 'EOF'
+SSOT CLI - Single Source of Truth Management
+=============================================
+
+Uso: ssot <comando> [opções]
+
+COMANDOS PRINCIPAIS:
+  apply-all              Aplica todas as padronizações SSOT
+  audit                  Executa auditoria 1Password
+  status                 Exibe status do sistema
+
+SINCRONIZAÇÃO:
+  sync-gh-codespaces     Sincroniza secrets com GitHub Codespaces
+  sync-hf-spaces         Sincroniza secrets com HuggingFace Spaces
+  sync-coolify           Sincroniza env vars com Coolify
+
+CONFIGURAÇÃO:
+  shell-macos            Configura shell macOS (zsh)
+  shell-linux            Configura shell Linux/VPS (bash)
+
+EXEMPLOS:
+  ssot apply-all                          # Padronizar tudo
+  ssot audit --vaults 1p_vps              # Auditar cofre específico
+  ssot sync-gh-codespaces                 # Sync com Codespaces
+  ssot status                             # Ver status
+
+ARQUIVOS:
+  ${OPS_DIR}/state/        Estados e logs
+  ${OPS_DIR}/policy/       Políticas SSOT
+  ${OPS_DIR}/templates/    Templates e exemplos
+
+DOCUMENTAÇÃO: ${REPO_ROOT}/README.md
+EOF
+}
+
+# Roteador de comandos
+main() {
+    local cmd="${1:-help}"
+    shift || true
+
+    case "$cmd" in
+        apply-all)
+            check_op_cli
+            cmd_apply_all "$@"
+            ;;
+        audit)
+            check_op_cli
+            cmd_audit "$@"
+            ;;
+        sync-gh-codespaces)
+            check_op_cli
+            cmd_sync_gh_codespaces "$@"
+            ;;
+        sync-hf-spaces)
+            check_op_cli
+            cmd_sync_hf_spaces "$@"
+            ;;
+        sync-coolify)
+            check_op_cli
+            cmd_sync_coolify "$@"
+            ;;
+        shell-macos)
+            check_op_cli
+            cmd_shell_macos "$@"
+            ;;
+        shell-linux)
+            check_op_cli
+            cmd_shell_linux "$@"
+            ;;
+        status)
+            cmd_status "$@"
+            ;;
+        help|--help|-h)
+            cmd_help
+            ;;
+        *)
+            log_error "Comando desconhecido: $cmd"
+            echo "Execute 'ssot help' para ver comandos disponíveis"
+            exit 1
+            ;;
+    esac
+}
+
+main "$@"

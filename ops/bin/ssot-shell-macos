@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+# ops/bin/ssot-shell-macos
+# Configura shell macOS (zsh) com integração 1Password e SSH Agent
+# Autor: senal88
+# Data: 2026-01-05
+
+set -euo pipefail
+
+log_info() { echo -e "\033[34m[INFO]\033[0m $*"; }
+log_success() { echo -e "\033[32m[OK]\033[0m $*"; }
+log_error() { echo -e "\033[31m[ERROR]\033[0m $*" >&2; }
+
+log_info "Configurando shell macOS (zsh)..."
+
+# 1. Configurar ~/.zshrc com aliases SHARED_*
+ZSHRC="${HOME}/.zshrc"
+SSOT_BLOCK_START="# >>> SSOT START"
+SSOT_BLOCK_END="# <<< SSOT END"
+
+# Remover bloco antigo se existir
+if grep -q "$SSOT_BLOCK_START" "$ZSHRC" 2>/dev/null; then
+    log_info "Removendo configuração SSOT antiga..."
+    sed -i.bak "/$SSOT_BLOCK_START/,/$SSOT_BLOCK_END/d" "$ZSHRC"
+fi
+
+# Adicionar novo bloco
+log_info "Adicionando aliases SSOT ao ~/.zshrc..."
+cat >> "$ZSHRC" << 'EOF'
+
+# >>> SSOT START
+# Configuração automática - Não editar manualmente
+# Gerado por: ops/bin/ssot-shell-macos
+
+# Aliases para secrets SHARED_* (via 1Password CLI)
+export SHARED_OPENAI_API_KEY="op://gkpsbgizlks2zknwzqpppnb2ze/SSOT::SHARED::EXTERNAL::OPENAI/api_key"
+export SHARED_HUGGINGFACE_TOKEN="op://gkpsbgizlks2zknwzqpppnb2ze/SSOT::SHARED::EXTERNAL::HUGGINGFACE/api_key"
+export SHARED_PERPLEXITY_API_KEY="op://gkpsbgizlks2zknwzqpppnb2ze/PERPLEXITY_SONAR/api_key"
+export SHARED_GITHUB_TOKEN="op://gkpsbgizlks2zknwzqpppnb2ze/SSOT::SHARED::EXTERNAL::GITHUB/api_token"
+export SHARED_COOLIFY_TOKEN="op://gkpsbgizlks2zknwzqpppnb2ze/SSOT::SHARED::EXTERNAL::COOLIFY/api_token"
+
+# Aliases derivados (para ferramentas que exigem nomes específicos)
+alias load-openai='export OPENAI_API_KEY=$(op read "$SHARED_OPENAI_API_KEY")'
+alias load-hf='export HF_TOKEN=$(op read "$SHARED_HUGGINGFACE_TOKEN")'
+alias load-perplexity='export PERPLEXITY_API_KEY=$(op read "$SHARED_PERPLEXITY_API_KEY")'
+
+# Aliases de conveniência
+alias ssot='${HOME}/Projects/1password-audit-expert/ops/bin/ssot'
+alias 1p-audit='ssot audit'
+
+# <<< SSOT END
+EOF
+
+log_success "~/.zshrc configurado"
+
+# 2. Configurar SSH Agent 1Password
+SSH_CONFIG="${HOME}/.ssh/config"
+mkdir -p "${HOME}/.ssh"
+touch "$SSH_CONFIG"
+
+if ! grep -q "IdentityAgent" "$SSH_CONFIG" 2>/dev/null; then
+    log_info "Configurando SSH Agent 1Password..."
+    cat >> "$SSH_CONFIG" << 'EOF'
+
+# 1Password SSH Agent
+Host *
+    IdentityAgent "~/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+EOF
+    log_success "SSH Agent configurado"
+else
+    log_info "SSH Agent já configurado"
+fi
+
+# 3. Configurar agent.toml (controle fino do SSH Agent)
+AGENT_TOML="${HOME}/.config/1Password/ssh/agent.toml"
+mkdir -p "$(dirname "$AGENT_TOML")"
+
+if [[ ! -f "$AGENT_TOML" ]]; then
+    log_info "Criando agent.toml..."
+    cat > "$AGENT_TOML" << 'EOF'
+# 1Password SSH Agent Configuration
+# Docs: https://developer.1password.com/docs/ssh/agent/config
+
+[[ssh-keys]]
+vault = "1p_vps"
+
+[[ssh-keys]]
+vault = "1p_macos"
+EOF
+    log_success "agent.toml criado"
+fi
+
+echo ""
+log_success "Configuração macOS concluída!"
+echo ""
+echo "Para aplicar as mudanças:"
+echo "  source ~/.zshrc"
+echo ""
+echo "Aliases disponíveis:"
+echo "  load-openai      # Carregar OPENAI_API_KEY"
+echo "  load-hf          # Carregar HF_TOKEN"
+echo "  ssot             # CLI SSOT"
+echo "  1p-audit         # Auditoria 1Password"

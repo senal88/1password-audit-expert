@@ -1,0 +1,79 @@
+name: Deploy to HuggingFace Space
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'gradio/**'
+      - '.github/workflows/deploy-hf-space.yml'
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install huggingface_hub
+
+      - name: Deploy to HuggingFace Space
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+        run: |
+          # Clone Space
+          git clone https://huggingface.co/spaces/senal88/1password-audit-expert hf-space
+
+          # Copy files
+          cp -f gradio/app.py hf-space/
+          cp -f gradio/requirements.txt hf-space/
+          cp -f gradio/README.md hf-space/
+
+          # Push changes
+          cd hf-space
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          git add -A
+          git commit -m "Deploy: ${GITHUB_SHA::7}" || exit 0
+          git push https://senal88:${HF_TOKEN}@huggingface.co/spaces/senal88/1password-audit-expert main
+
+      - name: Update Space Secrets
+        env:
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          python - << 'EOF'
+          from huggingface_hub import HfApi
+          import os
+
+          api = HfApi(token=os.environ["HF_TOKEN"])
+
+          secrets = {
+              "HF_TOKEN": os.environ["HF_TOKEN"],
+              "OPENAI_API_KEY": os.environ.get("OPENAI_API_KEY", ""),
+          }
+
+          for key, value in secrets.items():
+              if value:
+                  try:
+                      api.add_space_secret(
+                          repo_id="senal88/1password-audit-expert",
+                          key=key,
+                          value=value
+                      )
+                      print(f"✓ Updated secret: {key}")
+                  except Exception as e:
+                      print(f"✗ Failed to update {key}: {e}")
+          EOF
+
+      - name: Verify Deployment
+        run: |
+          echo "✅ Deployment complete!"
+          echo "Space URL: https://huggingface.co/spaces/senal88/1password-audit-expert"

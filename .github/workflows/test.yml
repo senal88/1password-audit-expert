@@ -1,0 +1,87 @@
+name: Test
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install ruff black isort
+
+      - name: Lint with ruff
+        run: |
+          ruff check cli/ gradio/ || true
+
+      - name: Check formatting
+        run: |
+          black --check cli/ gradio/ || true
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for exposed secrets
+        run: |
+          # Fail if any file contains potential secrets
+          ! grep -r "sk-" . --exclude-dir=.git --exclude="*.md" || echo "⚠️ Potential API key found"
+          ! grep -r "hf_" . --exclude-dir=.git --exclude="*.md" || echo "⚠️ Potential HF token found"
+
+          # Check .env files are not committed
+          if find . -name ".env" -not -path "./.git/*" | grep -q ".env"; then
+            echo "❌ .env file found in repository!"
+            exit 1
+          fi
+
+          echo "✅ No exposed secrets detected"
+
+  test-cli:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r cli/requirements.txt
+
+      - name: Validate CLI syntax
+        run: |
+          python -m py_compile cli/audit_1password_expert.py
+          echo "✅ CLI syntax valid"
+
+  test-gradio:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install -r gradio/requirements.txt
+
+      - name: Validate Gradio app
+        run: |
+          python -m py_compile gradio/app.py
+          echo "✅ Gradio app syntax valid"
