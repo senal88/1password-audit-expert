@@ -1,0 +1,87 @@
+{
+  "name": "1Password Audit Expert",
+  "image": "mcr.microsoft.com/devcontainers/python:3.11-bullseye",
+
+  "features": {
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/node:1": {
+      "version": "20"
+    },
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "installZsh": true,
+      "configureZshAsDefaultShell": true
+    }
+  },
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "ms-python.black-formatter",
+        "charliermarsh.ruff",
+        "GitHub.copilot",
+        "GitHub.copilot-chat",
+        "eamodio.gitlens",
+        "ms-azuretools.vscode-docker",
+        "redhat.vscode-yaml",
+        "esbenp.prettier-vscode"
+      ],
+      "settings": {
+        "python.defaultInterpreterPath": "/usr/local/bin/python",
+        "python.linting.enabled": true,
+        "python.linting.pylintEnabled": false,
+        "python.linting.ruffEnabled": true,
+        "python.formatting.provider": "black",
+        "editor.formatOnSave": true,
+        "editor.codeActionsOnSave": {
+          "source.organizeImports": true
+        },
+        "files.exclude": {
+          "**/__pycache__": true,
+          "**/*.pyc": true
+        }
+      }
+    }
+  },
+
+  "remoteEnv": {
+    "SHARED_OPENAI_API_KEY": "${localEnv:SHARED_OPENAI_API_KEY}",
+    "SHARED_HUGGINGFACE_TOKEN": "${localEnv:SHARED_HUGGINGFACE_TOKEN}",
+    "SHARED_PERPLEXITY_API_KEY": "${localEnv:SHARED_PERPLEXITY_API_KEY}",
+    "SHARED_GITHUB_TOKEN": "${localEnv:SHARED_GITHUB_TOKEN}",
+    "HF_TOKEN": "${localEnv:SHARED_HUGGINGFACE_TOKEN}",
+    "OPENAI_API_KEY": "${localEnv:SHARED_OPENAI_API_KEY}"
+  },
+
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+
+  "forwardPorts": [7860, 8000],
+  "portsAttributes": {
+    "7860": {
+      "label": "Gradio Interface",
+      "onAutoForward": "notify"
+    },
+    "8000": {
+      "label": "API Server",
+      "onAutoForward": "silent"
+    }
+  },
+
+  "mounts": [
+    "source=${localEnv:HOME}${localEnv:USERPROFILE}/.config/1Password,target=/home/vscode/.config/1Password,type=bind,consistency=cached"
+  ],
+
+  "runArgs": [
+    "--name=1password-audit-expert"
+  ],
+
+  "remoteUser": "vscode",
+
+  "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+
+  "containerEnv": {
+    "TZ": "America/Sao_Paulo",
+    "PYTHONUNBUFFERED": "1"
+  }
+}
